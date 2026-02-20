@@ -113,7 +113,6 @@ def create_profile():
         }), 500
 
 
-
 @app.route("/api/user", methods=["POST"])
 def create_user():
     data = request.get_json()
@@ -129,21 +128,10 @@ def create_user():
         "email",
         "password",
         "security_question",
-        "security_answer",
-        "verification_code"
+        "security_answer"
     ]
 
-    # Check for duplicate usernames
-    cursor.execute("SELECT username FROM user_base")
-    existing_usernames = {row[0] for row in cursor.fetchall()}
-    if data["username"] in existing_usernames:
-        return jsonify({
-            "status": "error",
-            "message": "Username already exists"
-        }), 400
-    
-
-    # Validate required fields
+    # Validate required fields FIRST
     for field in required_fields:
         if not data.get(field):
             return jsonify({
@@ -152,28 +140,49 @@ def create_user():
             }), 400
 
     try:
+        # Check duplicate username properly
+        cursor.execute(
+            "SELECT 1 FROM user_base WHERE username = %s",
+            (data["username"],)
+        )
+        if cursor.fetchone():
+            return jsonify({
+                "status": "error",
+                "message": "Username already exists"
+            }), 400
+
+        # Insert user
         cursor.execute("""
             INSERT INTO user_base
-            (username, email, password_hash, sequrity_question, sequrity_answer_hash,failed_attempts, last_login, last_failed_login, trial_ends_at, locked, lock_reason, active)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s)
+            (username, email, password_hash, sequrity_question, sequrity_answer_hash,
+             failed_attempts, last_login, last_failed_login, trial_ends_at,
+             locked, lock_reason, active)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             data["username"],
             data["email"],
             hashlib.sha256(data["password"].encode()).hexdigest(),
-            hashlib.sha256(data["security_question"].encode()).hexdigest(),
+            data["security_question"],
             hashlib.sha256(data["security_answer"].encode()).hexdigest(),
-            0, None, None, (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S"),
-            False, "", True
+            0,
+            None,
+            None,
+            (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S"),
+            False,
+            "",
+            True
         ))
 
+        conn.commit()
+
+        code = secrets.token_hex(3)
+        session['email_code'] = code
         send_email(
-            recipient=data["email"],
-            subject="Verification of Account Creation",
-            body=f"Here is your verification code: {data['verification_code']}",
+            data['email'],
+            "Business Essential - Verify Your Email",
+            f'Your verification code is {code}',
             html=False
         )
-
-        conn.commit()
 
         return jsonify({
             "status": "success",
@@ -182,12 +191,9 @@ def create_user():
 
     except Exception as e:
         conn.rollback()
-        print(e)
         return jsonify({
             "status": "error",
-            "message": "Database error",
-            "details": str(e)
-    
+            "message": "Database error"
         }), 500
 
 @app.route("/api/verify", methods=["POST"])
@@ -201,8 +207,7 @@ def verify_user():
         }), 400
 
     required_fields = [
-        "generated_code",
-        "verification_code"
+       "entered_code"
     ]
 
     # Validate required fields
@@ -213,18 +218,20 @@ def verify_user():
                 "message": f"Missing field: {field}"
             }), 400
 
+    genereted_code = session.get("email_code")
     # Here you would normally check the verification code against what was sent/stored
-    if data["generated_code"] != data["verification_code"]:
+    if genereted_code != data["entered_code"]:
         return jsonify({
             "status": "error",
             "message": "Invalid verification code"
         }), 400
     
-
+    session.clear()
     return jsonify({
         "status": "success",
         "message": "User verified successfully"
     }), 200
+
 
 
 UPLOAD_FOLDER = "static/uploads"  # Make sure this folder exists
@@ -484,3 +491,4 @@ def resend_verification():
 
 if __name__ == "__main__":
     app.run()
+
