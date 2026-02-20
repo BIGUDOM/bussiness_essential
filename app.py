@@ -23,8 +23,11 @@ cursor = conn.cursor()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
 
-CORS(app, supports_credentials=True)
-
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    supports_credentials=True
+)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax"
@@ -491,4 +494,5 @@ def resend_verification():
 
 if __name__ == "__main__":
     app.run()
+
 
