@@ -194,9 +194,10 @@ def create_user():
 
     except Exception as e:
         conn.rollback()
+        print(e)
         return jsonify({
             "status": "error",
-            "message": "Database error"
+            "message": f"Database error {e}"
         }), 500
 
 @app.route("/api/verify", methods=["POST"])
@@ -494,5 +495,6 @@ def resend_verification():
 
 if __name__ == "__main__":
     app.run()
+
 
 
