@@ -65,7 +65,11 @@ def create_profile():
 
     # GET USER ID FOR INDEXING
     user_id = get_user_id(data['username'])
-
+    if not user_id:
+        return jsonify({
+        "status": "error",
+        "message": "User not found"
+        }), 404
 
     # lOAD DATA FROM DATABASE TO ENSURE NO DUPLICATES
     cursor.execute("SELECT profilename FROM cust_base")
@@ -83,6 +87,17 @@ def create_profile():
                 "status": "error",
                 "message": f"Missing field: {field}"
             }), 400
+    values = [    
+            user_id,
+            data["profile_name"],
+            data["full_name"],
+            data["address"],
+            data["country"],
+            data["currency"],
+            data["dob"]
+    ]
+    for v in values:
+        print(v)
 
     try:
         cursor.execute("""
@@ -495,6 +510,7 @@ def resend_verification():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
