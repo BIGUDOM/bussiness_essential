@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import session, redirect
+from flask import session, redirec,request, jsonify
 import traceback
 import mysql.connector
 from flask import (
@@ -10,6 +10,7 @@ import os
 import requests
 import base64
 from dotenv import load_dotenv
+import jwt
 
 load_dotenv()
 
@@ -26,13 +27,6 @@ conn = mysql.connector.connect(
 )
 cursor = conn.cursor()
 
-def login_required(view):
-    @wraps(view)
-    def wrapped_view(*args, **kwargs):
-        if "user_id" not in session:
-            return redirect("/login")
-        return view(*args, **kwargs)
-    return wrapped_view
 
 
 def send_email(
@@ -122,4 +116,45 @@ def get_user_id(username):
     
     user_id = user[0]
 
+
     return user_id
+
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+
+        # Token comes from frontend in headers
+        if "Authorization" in request.headers:
+            auth_header = request.headers["Authorization"]
+            token = auth_header.split(" ")[1]  # Bearer <token>
+
+        if not token:
+            return jsonify({
+                "status": "error",
+                "message": "Token is missing"
+            }), 401
+
+        try:
+            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            current_user_id = data["user_id"]
+            current_user_role = data["role"]
+
+        except jwt.ExpiredSignatureError:
+            return jsonify({
+                "status": "error",
+                "message": "Token expired"
+            }), 401
+
+        except Exception:
+            return jsonify({
+                "status": "error",
+                "message": "Invalid token"
+            }), 401
+
+        return f(current_user_id, current_user_role, *args, **kwargs)
+
+    return decorated
