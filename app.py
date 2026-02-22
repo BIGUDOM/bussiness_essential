@@ -770,7 +770,7 @@ def verifylogin():
         """
         
       
-
+        email = user['email']
         send_email(
             recipient=email,
             subject="New Sign-In Detected — Business Essential",
@@ -802,6 +802,7 @@ def verifylogin():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
