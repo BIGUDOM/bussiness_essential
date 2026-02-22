@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import session, redirec,request, jsonify
+from flask import session, redirect,request, jsonify
 import traceback
 import mysql.connector
 from flask import (
@@ -158,3 +158,4 @@ def token_required(f):
         return f(current_user_id, current_user_role, *args, **kwargs)
 
     return decorated
+
