@@ -46,21 +46,102 @@ DASHBOARD_URL = "https://yourapp.com/dashboard"
 @token_required
 def dashboard(user_id, role):
 
+  
+    cursor.execute(
+        """
+        SELECT profilepicurl, profilename  
+        FROM cust_base 
+        WHERE user_id=%s
+        """,
+        (user_id,)
+    )
+    cust = cursor.fetchone()
+
+    profile_picture_url, profilename  = cust[0], cust[1]
+
+    # Feth total invoice
     cursor.execute("""
-        SELECT profilename, currency
-        FROM cust_base
-        WHERE user_id = %s
+        SELECT COUNT(*)
+        FROM invoices
+        WHERE user_id=%s
     """, (user_id,))
+    total_invoices = cursor.fetchone()[0]
 
-    profile = cursor.fetchone()
 
+    # Fetch paid invoice
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM invoices
+        WHERE user_id=%s AND status=%s
+        ORDER BY invoice_date DESC
+    """, (user_id,"paid"))
+    paid_invoices = cursor.fetchone()[0]
+
+
+    # Fetch pending invoice
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM invoices
+        WHERE user_id=%s AND status=%s
+        ORDER BY invoice_date DESC
+    """, (user_id,"pending"))
+    pending_invoices = cursor.fetchone()[0]
+
+    # Fetch total revenues
+    cursor.execute(
+        """
+        SELECT  COALESCE(SUM(total_amount), 0) 
+        FROM invoices
+        WHERE user_id=%s AND status=%s
+        ORDER BY invoice_date DESC
+    """, (user_id,"paid")
+    )
+    total_revenue = cursor.fetchone()[0]
+
+    # Fetch currency
+    cursor.execute(
+        """
+        SELECT currency, currency_symbol
+        FROM user_settings
+        WHERE user_id=%s
+        """,
+        (user_id,)
+    )
+    settings = cursor.fetchone()
+    if not settings:
+        return jsonify({"error": "Settings not found"}), 404
+    currency, currency_symbol = settings
+
+    # Fetch wallet balance
+    cursor.execute(
+        """
+        SELECT wallet_balance 
+        FROM wallet_base
+        WHERE user_id=%s
+        """,
+        (user_id,)
+    )
+    wallet = cursor.fetchone()
+    if not wallet:
+        return jsonify({"error": "Wallet not found"}), 404
+    
+    wallet_balance = wallet[0]
+
+  
     return jsonify({
         "status": "success",
         "user": {
             "id": user_id,
             "role": role,
-            "profile": profile
-        }
+        },
+        "profilename": profilename,
+        "profile_picture_url": profile_picture_url,
+        "total_invoices": total_invoices,
+        "paid_invoices": paid_invoices,
+        "pending_invoices": pending_invoices,
+        "total_revenue": total_revenue,
+        "currency_symbol": currency_symbol,
+        "wallet_balance":wallet_balance
     }), 200
 
 @app.route("/api/cust", methods=["POST"])
@@ -820,6 +901,7 @@ def verifylogin():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
