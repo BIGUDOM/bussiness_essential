@@ -8,7 +8,7 @@ import secrets
 import requests
 import mysql.connector
 import os
-from backend.utils import login_required,get_user_id,send_email
+from backend.utils import token_required,get_user_id,send_email
 import jwt
 from functools import wraps
 
@@ -42,8 +42,26 @@ APP_LOGO_URL = os.path.join('static', 'media', 'app logo.png')
 SECURITY_URL = "https://yourapp.com/security-settings"
 DASHBOARD_URL = "https://yourapp.com/dashboard"
 
+@app.route("/api/dashboard", methods=["GET"])
+@token_required
+def dashboard(user_id, role):
 
+    cursor.execute("""
+        SELECT profilename, currency
+        FROM cust_base
+        WHERE user_id = %s
+    """, (user_id,))
 
+    profile = cursor.fetchone()
+
+    return jsonify({
+        "status": "success",
+        "user": {
+            "id": user_id,
+            "role": role,
+            "profile": profile
+        }
+    }), 200
 
 @app.route("/api/cust", methods=["POST"])
 def create_profile():
@@ -802,6 +820,7 @@ def verifylogin():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
