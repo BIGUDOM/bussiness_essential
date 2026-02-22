@@ -506,10 +506,291 @@ def resend_verification():
         "message": "Verification code resent successfully"
     }), 200
 
+@app.route("/loginp", methods=["POST"])
+def verifylogin():
+    data = request.get_json()
+
+    if not data:
+        return jsonify({
+            "status": "error",
+            "message": "Invalid or missing JSON"
+        }), 400
+    
+    required_fields = [
+        'username',
+        'password'
+    ]
+
+    # Validate required fields
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({
+                "status": "error",
+                "message": f"Missing field: {field}"
+            }), 400
+        
+    try:
+        cursor.execute(
+            """
+            SELECT password_hash, locked, failed_attempts, last_failed_login,email,lock_reason, user_id
+            FROM user_base
+            WHERE username=%s
+            """,
+            (data['username'],)
+        )
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({
+                "status": "error",
+                "message":"User not found"
+            }),400
+        
+        if user[1]:
+            return jsonify({
+                "status": "error",
+                "message":  f"Account locked! Reason: {user[5]}" 
+            }), 400
+        
+
+
+        current_password = user[0]
+        password = data['password']
+        hashed = hashlib.sha256(password.encode()).hexdigest()
+        user_id = user[6]
+
+        if hashed != current_password:
+            # Failed attempt
+            new_attempts = user[2] + 1  
+            cursor.execute(
+                "UPDATE user_base SET failed_attempts=%s, last_failed_login=NOW() WHERE username=%s",
+                (new_attempts, data['username']),
+            )
+            conn.commit()
+
+            if new_attempts >= 3:
+                cursor.execute(
+                    "UPDATE user_base SET locked=1, lock_reason=%s WHERE username=%s",
+                    ("Too many failed login attempts", data['username']),
+                )
+                conn.commit()
+            return jsonify({
+                "status": "error",
+                "message": "Incorrect Password"
+            }), 400
+        
+
+        # --- Successful login ---
+
+        cursor.execute(
+            "UPDATE user_base SET failed_attempts=0, last_login= NOW() WHERE username=%s",
+            (data['username'],)
+        )
+
+
+        cursor.execute(
+            """
+            SELECT *
+            FROM wallet_base
+            WHERE user_id=%s
+            """,
+            (user_id,)
+        )
+        w = cursor.fetchone()
+        if not w :
+            cursor.execute(
+                """
+                INSERT INTO wallet_base (user_id, date_created)
+                VALUES(%s,%s)
+                """,
+                (user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+
+        cursor.execute(
+            """
+            SELECT trial_ends_at 
+            FROM user_base 
+            WHERE user_id=%s
+            """,
+            (user_id,)
+        )
+        trial = cursor.fetchone()
+        if trial and trial[0] is None:
+            cursor.execute(
+                """
+                UPDATE user_base
+                SET trial_ends_at=%s
+                WHERE user_id=%s
+                """,
+                ((datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S"), user_id)
+            )
+        
+
+        conn.commit()
+
+  
+    
+        # --- Send login notification ---
+        email = str(user[4]) if user[4] else None # type: ignore
+        # Build login HTML
+
+        def get_location_from_ip(ip):
+            try:
+                response = requests.get(f"https://ipinfo.io/{ip}/json", timeout=5)
+                data = response.json()
+
+                city = data.get("city", "Unknown City")
+                region = data.get("region", "Unknown Region")
+                country = data.get("country", "Unknown Country")
+                return city, region, country
+            except Exception:
+                return "Unknown City", "Unknown Region", "Unknown Country"
+
+        def get_client_ip(request):
+            if request.headers.get("X-Forwarded-For"):
+                return request.headers.get("X-Forwarded-For").split(",")[0]
+            return request.remote_addr
+
+        login_ip = get_client_ip(request)
+        city, region, country = get_location_from_ip(login_ip)
+        year = datetime.now().year
+
+        login_html = f"""
+
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+    <tr>
+      <td align="center">
+
+
+    <!-- Main Card -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background:#ffffff; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.08); overflow:hidden;">
+
+      <!-- Header -->
+      <tr>
+        <td style="background:#111827; padding:24px; text-align:center;">
+          <img src="{APP_LOGO_URL}" alt="Business Essential Logo" width="48" height="48" style="display:block; margin:0 auto 8px;" />
+          <h1 style="color:#ffffff; font-size:20px; margin:0;">Business Essential</h1>
+          <p style="color:#9ca3af; margin:4px 0 0; font-size:14px;">Security Notification</p>
+        </td>
+      </tr>
+
+      <!-- Content -->
+      <tr>
+        <td style="padding:32px; color:#111827;">
+          <h2 style="margin-top:0; font-size:22px;">New Sign-In Detected</h2>
+
+          <p style="font-size:15px; line-height:1.6;">
+            We noticed a new sign-in to your Invoice App account.  
+            For your security, we’re letting you know whenever your account is accessed from a new device or location.
+          </p>
+
+          <!-- Details Box -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0; background:#f9fafb; border-radius:8px; padding:16px;">
+            <tr>
+              <td style="font-size:14px; line-height:1.8;">
+                <strong>Login details</strong><br />
+                <strong>IP Address:</strong> {login_ip}<br />
+                <strong>Location:</strong> {city}, {region}, {country}<br />
+                <strong>Date & Time:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br />
+                <strong>Device:</strong> New or unrecognized device
+              </td>
+            </tr>
+          </table>
+
+          <p style="font-size:15px; line-height:1.6;">
+            <strong>Was this you?</strong><br />
+            If you recognize this activity, no action is required. You can safely ignore this message.
+          </p>
+
+          <p style="font-size:15px; line-height:1.6;">
+            <strong>Was this not you?</strong><br />
+            If you do not recognize this sign-in, we strongly recommend taking action immediately to protect your account:
+          </p>
+
+          <ul style="font-size:15px; line-height:1.6; padding-left:20px;">
+            <li>Change your account password</li>
+            <li>Review recent account activity</li>
+            <li>Update your security questions or recovery details</li>
+          </ul>
+
+          <!-- CTA Button -->
+          <table cellpadding="0" cellspacing="0" style="margin:28px 0;">
+            <tr>
+              <td align="center">
+                <a href="{SECURITY_URL}" style="background:#2563eb; color:#ffffff; text-decoration:none; padding:12px 20px; border-radius:8px; font-weight:600; display:inline-block;">
+                  Secure My Account
+                </a>
+              </td>
+            </tr>
+          </table>
+
+          <p style="font-size:14px; color:#374151; line-height:1.6;">
+            If you believe your account has been compromised or need assistance, please contact our support team immediately.
+          </p>
+
+          <p style="font-size:14px; color:#6b7280; margin-top:32px;">
+            Thank you for helping us keep your account secure,<br />
+            <strong>The Business Essential Security Team</strong>
+          </p>
+        </td>
+      </tr>
+
+      <!-- Footer -->
+      <tr>
+        <td style="background:#f9fafb; padding:16px; text-align:center; font-size:12px; color:#6b7280;">
+          This is an automated security message. Please do not reply.<br />
+          © {year} Business Essential. All rights reserved.
+        </td>
+      </tr>
+
+    </table>
+
+  </td>
+</tr>
+
+
+  </table>
+
+</body>
+
+
+        """
+        
+        token = jwt.encode({
+            "user_id": user_id,
+            "exp": datetime.utcnow() + timedelta(days=7)
+        }, app.config["SECRET_KEY"], algorithm="HS256")
+
+        send_email(
+            recipient=email,
+            subject="New Sign-In Detected — Business Essential",
+            body=login_html,
+            html=True
+        )
+
+
+        session['user_id'] = user_id
+
+        return jsonify({
+            "status": "success",
+            "message": "Login successful",
+            "token": token
+        }), 201
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({
+            "status": "error",
+            "message": "Database error",
+            "details": str(e)
+        }), 500
 
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
