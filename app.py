@@ -510,132 +510,141 @@ def resend_verification():
 
 @app.route("/loginp", methods=["POST"])
 def verifylogin():
-    data = request.get_json()
+    try:
+        data = request.get_json()
 
-    if not data:
-        return jsonify({
-            "status": "error",
-            "message": "Invalid or missing JSON"
-        }), 400
-    
-    required_fields = [
-        'username',
-        'password'
-    ]
-
-    # Validate required fields
-    for field in required_fields:
-        if not data.get(field):
+        if not data:
             return jsonify({
                 "status": "error",
-                "message": f"Missing field: {field}"
+                "message": "Invalid JSON"
             }), 400
-        
-    try:
-        cursor.execute(
-            """
-            SELECT password_hash, locked, failed_attempts, last_failed_login,email,lock_reason, user_id
+
+        username = data.get("username")
+        password = data.get("password")
+
+        if not username or not password:
+            return jsonify({
+                "status": "error",
+                "message": "Username and password required"
+            }), 400
+
+  
+
+        cursor = conn.cursor(dictionary=True, buffered=True)
+        # ===============================
+        # 1️⃣ Get User
+        # ===============================
+        cursor.execute("""
+            SELECT user_id, password_hash, locked, 
+                   failed_attempts, email, lock_reason, trial_ends_at
             FROM user_base
             WHERE username=%s
-            """,
-            (data['username'],)
-        )
+            LIMIT 1
+        """, (username,))
+        
         user = cursor.fetchone()
 
         if not user:
             return jsonify({
                 "status": "error",
-                "message":"User not found"
-            }),400
-        
-        if user[1]:
+                "message": "User not found"
+            }), 404
+
+        # ===============================
+        # 2️⃣ Check Lock
+        # ===============================
+        if user["locked"]:
             return jsonify({
                 "status": "error",
-                "message":  f"Account locked! Reason: {user[5]}" 
-            }), 400
-        
+                "message": f"Account locked: {user['lock_reason']}"
+            }), 403
 
-
-        current_password = user[0]
-        password = data['password']
+        # ===============================
+        # 3️⃣ Verify Password
+        # ===============================
         hashed = hashlib.sha256(password.encode()).hexdigest()
-        user_id = user[6]
 
-        if hashed != current_password:
-            # Failed attempt
-            new_attempts = user[2] + 1  
-            cursor.execute(
-                "UPDATE user_base SET failed_attempts=%s, last_failed_login=NOW() WHERE username=%s",
-                (new_attempts, data['username']),
-            )
-            conn.commit()
+        if hashed != user["password_hash"]:
+            new_attempts = user["failed_attempts"] + 1
+
+            cursor.execute("""
+                UPDATE user_base
+                SET failed_attempts=%s,
+                    last_failed_login=NOW()
+                WHERE user_id=%s
+            """, (new_attempts, user["user_id"]))
 
             if new_attempts >= 3:
-                cursor.execute(
-                    "UPDATE user_base SET locked=1, lock_reason=%s WHERE username=%s",
-                    ("Too many failed login attempts", data['username']),
-                )
-                conn.commit()
+                cursor.execute("""
+                    UPDATE user_base
+                    SET locked=1,
+                        lock_reason=%s
+                    WHERE user_id=%s
+                """, ("Too many failed login attempts", user["user_id"]))
+
+            conn.commit()
+
             return jsonify({
                 "status": "error",
-                "message": "Incorrect Password"
-            }), 400
-        
+                "message": "Incorrect password"
+            }), 401
 
-        # --- Successful login ---
+        # ===============================
+        # 4️⃣ Successful Login
+        # ===============================
 
-        cursor.execute(
-            "UPDATE user_base SET failed_attempts=0, last_login= NOW() WHERE username=%s",
-            (data['username'],)
-        )
+        cursor.execute("""
+            UPDATE user_base
+            SET failed_attempts=0,
+                last_login=NOW()
+            WHERE user_id=%s
+        """, (user["user_id"],))
 
-
-        cursor.execute(
-            """
-            SELECT *
+        # ===============================
+        # 5️⃣ Ensure Wallet Exists
+        # ===============================
+        cursor.execute("""
+            SELECT wallet_id
             FROM wallet_base
             WHERE user_id=%s
-            """,
-            (user_id,)
-        )
-        w = cursor.fetchone()
-        if not w :
-            cursor.execute(
-                """
-                INSERT INTO wallet_base (user_id, date_created)
-                VALUES(%s,%s)
-                """,
-                (user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            )
+            LIMIT 1
+        """, (user["user_id"],))
 
-        cursor.execute(
-            """
-            SELECT trial_ends_at 
-            FROM user_base 
-            WHERE user_id=%s
-            """,
-            (user_id,)
-        )
-        trial = cursor.fetchone()
-        if trial and trial[0] is None:
-            cursor.execute(
-                """
+        wallet = cursor.fetchone()
+
+        if not wallet:
+            cursor.execute("""
+                INSERT INTO wallet_base (user_id, date_created)
+                VALUES (%s, NOW())
+            """, (user["user_id"],))
+
+        # ===============================
+        # 6️⃣ Ensure Trial Period
+        # ===============================
+        if not user["trial_ends_at"]:
+            cursor.execute("""
                 UPDATE user_base
                 SET trial_ends_at=%s
                 WHERE user_id=%s
-                """,
-                ((datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S"), user_id)
-            )
-        
+            """, (
+                datetime.utcnow() + timedelta(days=30),
+                user["user_id"]
+            ))
 
         conn.commit()
 
-  
-    
-        # --- Send login notification ---
-        email = str(user[4]) if user[4] else None # type: ignore
-        # Build login HTML
+        # ===============================
+        # 7️⃣ Generate JWT Token
+        # ===============================
+        token = jwt.encode({
+            "user_id": user["user_id"],
+            "exp": datetime.utcnow() + timedelta(days=7)
+        }, app.config["SECRET_KEY"], algorithm="HS256")
 
+        # ===============================
+        # 8️⃣ Send Login Notification
+        # ===============================
+ 
         def get_location_from_ip(ip):
             try:
                 response = requests.get(f"https://ipinfo.io/{ip}/json", timeout=5)
@@ -760,10 +769,7 @@ def verifylogin():
 
         """
         
-        token = jwt.encode({
-            "user_id": user_id,
-            "exp": datetime.utcnow() + timedelta(days=7)
-        }, app.config["SECRET_KEY"], algorithm="HS256")
+      
 
         send_email(
             recipient=email,
@@ -773,13 +779,15 @@ def verifylogin():
         )
 
 
-        session['user_id'] = user_id
-
+        # ===============================
+        # 9️⃣ Return Success
+        # ===============================
         return jsonify({
             "status": "success",
             "message": "Login successful",
-            "token": token
-        }), 201
+            "token": token,
+            "user_id": user["user_id"]
+        }), 200
 
     except Exception as e:
         conn.rollback()
@@ -790,8 +798,11 @@ def verifylogin():
         }), 500
 
 
+
+
 if __name__ == "__main__":
     app.run()
+
 
 
 
