@@ -9,6 +9,8 @@ import requests
 import mysql.connector
 import os
 from backend.utils import login_required,get_user_id,send_email
+import jwt
+from functools import wraps
 
 
 conn = mysql.connector.connect(
@@ -790,6 +792,7 @@ def verifylogin():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
