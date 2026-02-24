@@ -41,6 +41,7 @@ app.config.update(
 APP_LOGO_URL = os.path.join('static', 'media', 'app logo.png')
 SECURITY_URL = "https://yourapp.com/security-settings"
 DASHBOARD_URL = "https://yourapp.com/dashboard"
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 @app.route("/api/dashboard", methods=["GET"])
 @token_required
@@ -883,6 +884,7 @@ def verifylogin():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
