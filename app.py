@@ -866,8 +866,311 @@ def verifylogin():
 
 
 
+@app.route("/api/resetpass", methods=["POST"])
+def reset():
+    data = request.get_json()
+    print("RESET PASS HIT")
+
+    required_fields = ["email", "security_question", "security_answer"]
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({"status": "error", "message": f"Missing {field}"}), 400
+
+    try:
+        cursor.execute(
+            """
+            SELECT sequrity_question, sequrity_answer_hash, email
+            FROM user_base
+            WHERE email=%s
+            """,
+            (data['email'],)
+        )
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({"status": "error", "message": "User not found"}), 404
+
+        question, answer_hash, email = user
+        incoming_answer_hash = hashlib.sha256(
+            data['security_answer'].encode()
+        ).hexdigest()
+        incoming_question = data['security_question']
+
+        if incoming_question != question or incoming_answer_hash != answer_hash:
+            return jsonify({"status": "error", "message": "Invalid security details"}), 400
+
+        reset_code = secrets.token_hex(3)
+        reset_code_hash = hashlib.sha256(reset_code.encode()).hexdigest()
+
+        reset_code_expires = datetime.utcnow() + timedelta(minutes=10)
+
+        cursor.execute(
+            "UPDATE user_base SET reset_code_hash=%s, reset_code_expires=%s WHERE email=%s",
+            (reset_code_hash,reset_code_expires, email)
+        )
+        conn.commit()
+        reset_password_html = f"""
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+        <tr>
+            <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background:#ffffff; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.08); overflow:hidden;">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td style="background:#1558B0; padding:20px; text-align:center;">
+                            <h2 style="margin:0; color:#ffffff; font-weight:600;">
+                                Business Essential
+                            </h2>
+                        </td>
+                    </tr>
+
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding:30px;">
+                            <h3 style="margin-top:0; color:#333333;">
+                                Reset Your Password
+                            </h3>
+
+                            <p style="color:#555555; font-size:15px; line-height:1.6;">
+                                We received a request to reset your password.  
+                                If you didn’t make this request, you can safely ignore this email.
+                            </p>
+
+                            <p style="color:#555555; font-size:15px; line-height:1.6;">
+                                Use the verification code below to reset your password:
+                            </p>
+
+                            <!-- Code box -->
+                            <div style="text-align:center; margin:25px 0;">
+                                <span style="display:inline-block; padding:14px 24px; font-size:20px; letter-spacing:3px; background:#f1f5ff; color:#1558B0; border-radius:6px; font-weight:600;">
+                                    {reset_code}
+                                </span>
+                            </div>
+
+                            <p style="color:#777777; font-size:14px; line-height:1.6;">
+                                This code will expire in 10 minutes.
+                            </p>
+
+                            <p style="color:#555555; font-size:14px; line-height:1.6;">
+                                Need help? Contact our support team.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background:#f4f6f8; padding:16px; text-align:center;">
+                            <p style="margin:0; color:#888888; font-size:13px;">
+                                © {datetime.now().year} Business Essential. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+"""
+
+
+        send_email(
+            recipient=email,
+            subject="Business Essential - Password Reset Code",
+            body=reset_password_html,
+            html=True
+        )
+
+        return jsonify({
+            "status": "success",
+            "message": "Reset code sent to email"
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": "Server error",
+            "details": str(e)
+        }), 500
+
+
+    
+@app.route("/api/save-password", methods=["POST"])
+def savepassword():
+    data = request.get_json()
+
+    if not data:
+        return jsonify({
+            "status": "error",
+            "message": "Invalid or missing JSON"
+        }), 400
+
+    required_fields = ["email", "entered_code", "password","confirmpassword"]
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({
+                "status": "error",
+                "message": f"Missing field: {field}"
+            }), 400
+        
+    if data['password'] != data['confirmpassword']:
+        return jsonify({
+            "status": "error",
+            "message": "Password doesn't match."
+        }), 400
+
+    try:
+        cursor.execute(
+            """
+            SELECT reset_code_hash, reset_code_expires, email
+            FROM user_base
+            WHERE email=%s
+            """,
+            (data["email"],)
+        )
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({
+                "status": "error",
+                "message": "User not found"
+            }), 404
+
+        stored_hash, expires_at, email = user
+
+        if not stored_hash or not expires_at:
+            return jsonify({
+                "status": "error",
+                "message": "No active reset request"
+            }), 400
+        
+
+
+        if isinstance(expires_at, str):
+            expires_at = datetime.fromisoformat(expires_at)
+
+
+
+        if datetime.utcnow() > expires_at:
+            return jsonify({
+                "status": "error",
+                "message": "Reset code expired"
+            }), 400
+
+        entered_hash = hashlib.sha256(
+            data["entered_code"].encode()
+        ).hexdigest()
+        if entered_hash != stored_hash:
+            return jsonify({
+                "status": "error",
+                "message": "Invalid reset code"
+            }), 400
+
+        new_password_hash = hashlib.sha256(
+            data["password"].encode()
+        ).hexdigest()
+
+        cursor.execute(
+            """
+            UPDATE user_base
+            SET password_hash=%s,
+                reset_code_hash=NULL,
+                reset_code_expires=NULL,
+                locked=0
+            WHERE username=%s
+            """,
+            (new_password_hash, data["username"])
+        )
+        conn.commit()
+
+        # Email Notification
+        password_reset_success_html = f"""
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+        <tr>
+            <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background:#ffffff; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.08); overflow:hidden;">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td style="background:#1aa251; padding:20px; text-align:center;">
+                            <h2 style="margin:0; color:#ffffff; font-weight:600;">
+                                Business Essential
+                            </h2>
+                        </td>
+                    </tr>
+
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding:30px;">
+                            <h3 style="margin-top:0; color:#333333;">
+                                Password Reset Successful 🎉
+                            </h3>
+
+                            <p style="color:#555555; font-size:15px; line-height:1.6;">
+                                Your password has been successfully reset.
+                            </p>
+
+                            <p style="color:#555555; font-size:15px; line-height:1.6;">
+                                You can now log in to your account using your new password.
+                            </p>
+
+                            <!-- Login Button -->
+                            <div style="text-align:center; margin:30px 0;">
+                                <a href="{{LOGIN_URL}}"
+                                   style="display:inline-block; padding:12px 26px; background:#1558B0; color:#ffffff; text-decoration:none; border-radius:6px; font-weight:500; font-size:15px;">
+                                    Go to Login
+                                </a>
+                            </div>
+
+                            <p style="color:#777777; font-size:14px; line-height:1.6;">
+                                If you did not perform this action, please contact support immediately.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background:#f4f6f8; padding:16px; text-align:center;">
+                            <p style="margin:0; color:#888888; font-size:13px;">
+                                © {datetime.now().year} Business Essential. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+"""
+        send_email(
+            recipient=email,
+            subject="Business Essential - Password Reset Successful",
+            body=password_reset_success_html,
+            html=True
+        )
+
+
+        return jsonify({
+            "status": "success",
+            "message": "Password updated successfully"
+        }), 200
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({
+            "status": "error",
+            "message": "Database error",
+            "details": str(e)
+        }), 500
+
+
+
 if __name__ == "__main__":
     app.run()
+
 
 
 
