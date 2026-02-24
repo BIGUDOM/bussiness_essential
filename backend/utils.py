@@ -127,10 +127,9 @@ def token_required(f):
     def decorated(*args, **kwargs):
         token = None
 
-        # Token comes from frontend in headers
         if "Authorization" in request.headers:
             auth_header = request.headers["Authorization"]
-            token = auth_header.split(" ")[1]  # Bearer <token>
+            token = auth_header.split(" ")[1]
 
         if not token:
             return jsonify({
@@ -139,9 +138,9 @@ def token_required(f):
             }), 401
 
         try:
-            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            current_user_id = data["user_id"]
-            current_user_role = data["role"]
+            payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            current_user_id = payload["user_id"]
+            current_user_role = payload["role"]
 
         except jwt.ExpiredSignatureError:
             return jsonify({
@@ -158,4 +157,5 @@ def token_required(f):
         return f(current_user_id, current_user_role, *args, **kwargs)
 
     return decorated
+
 
