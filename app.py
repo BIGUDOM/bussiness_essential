@@ -35,6 +35,8 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax"
 )
 
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 # ==========================
 # CONSTANTS
 # ==========================
@@ -42,8 +44,8 @@ APP_LOGO_URL = os.path.join('static', 'media', 'app logo.png')
 SECURITY_URL = "https://yourapp.com/security-settings"
 DASHBOARD_URL = "https://yourapp.com/dashboard"
 SECRET_KEY = os.getenv("SECRET_KEY")
-
-
+UPLOAD_FOLDER = "static/uploads" 
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 @app.route("/api/dashboard", methods=["GET"])
 @token_required
 def dashboard(current_user_id, current_user_role):
@@ -338,7 +340,6 @@ def verify_user():
 
 
 
-UPLOAD_FOLDER = "static/uploads"  # Make sure this folder exists
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
 def allowed_file(filename):
@@ -1170,6 +1171,7 @@ def savepassword():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
