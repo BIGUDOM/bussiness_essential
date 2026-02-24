@@ -607,6 +607,7 @@ def resend_verification():
         "message": "Verification code resent successfully"
     }), 200
 
+
 @app.route("/loginp", methods=["POST"])
 def verifylogin():
     try:
@@ -630,12 +631,10 @@ def verifylogin():
   
 
         cursor = conn.cursor(dictionary=True, buffered=True)
-        # ===============================
-        # 1️⃣ Get User
-        # ===============================
+
         cursor.execute("""
             SELECT user_id, password_hash, locked, 
-                   failed_attempts, email, lock_reason, trial_ends_at
+                   failed_attempts, email, lock_reason, trial_ends_at, email, role
             FROM user_base
             WHERE username=%s
             LIMIT 1
@@ -649,18 +648,14 @@ def verifylogin():
                 "message": "User not found"
             }), 404
 
-        # ===============================
-        # 2️⃣ Check Lock
-        # ===============================
+ 
         if user["locked"]:
             return jsonify({
                 "status": "error",
                 "message": f"Account locked: {user['lock_reason']}"
             }), 403
 
-        # ===============================
-        # 3️⃣ Verify Password
-        # ===============================
+   
         hashed = hashlib.sha256(password.encode()).hexdigest()
 
         if hashed != user["password_hash"]:
@@ -688,9 +683,6 @@ def verifylogin():
                 "message": "Incorrect password"
             }), 401
 
-        # ===============================
-        # 4️⃣ Successful Login
-        # ===============================
 
         cursor.execute("""
             UPDATE user_base
@@ -699,9 +691,7 @@ def verifylogin():
             WHERE user_id=%s
         """, (user["user_id"],))
 
-        # ===============================
-        # 5️⃣ Ensure Wallet Exists
-        # ===============================
+
         cursor.execute("""
             SELECT wallet_id
             FROM wallet_base
@@ -717,9 +707,7 @@ def verifylogin():
                 VALUES (%s, NOW())
             """, (user["user_id"],))
 
-        # ===============================
-        # 6️⃣ Ensure Trial Period
-        # ===============================
+
         if not user["trial_ends_at"]:
             cursor.execute("""
                 UPDATE user_base
@@ -732,17 +720,15 @@ def verifylogin():
 
         conn.commit()
 
-        # ===============================
-        # 7️⃣ Generate JWT Token
-        # ===============================
-        token = jwt.encode({
-            "user_id": user["user_id"],
-            "exp": datetime.utcnow() + timedelta(days=7)
-        }, app.config["SECRET_KEY"], algorithm="HS256")
 
-        # ===============================
-        # 8️⃣ Send Login Notification
-        # ===============================
+        payload = {
+            "user_id": user["user_id"],
+            "role": user["role"],
+            "exp": datetime.utcnow() + timedelta(hours=24)
+        }
+
+        token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
  
         def get_location_from_ip(ip):
             try:
@@ -869,18 +855,16 @@ def verifylogin():
         """
         
       
-        email = user['email']
+
         send_email(
-            recipient=email,
+            recipient=user["email"],
             subject="New Sign-In Detected — Business Essential",
             body=login_html,
             html=True
         )
 
 
-        # ===============================
-        # 9️⃣ Return Success
-        # ===============================
+     
         return jsonify({
             "status": "success",
             "message": "Login successful",
@@ -898,9 +882,9 @@ def verifylogin():
 
 
 
-
 if __name__ == "__main__":
     app.run()
+
 
 
 
