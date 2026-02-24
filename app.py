@@ -44,16 +44,15 @@ DASHBOARD_URL = "https://yourapp.com/dashboard"
 
 @app.route("/api/dashboard", methods=["GET"])
 @token_required
-def dashboard(user_id, role):
+def dashboard(current_user_id, current_user_role):
 
-  
     cursor.execute(
         """
         SELECT profilepicurl, profilename  
         FROM cust_base 
         WHERE user_id=%s
         """,
-        (user_id,)
+        (current_user_id,)
     )
     cust = cursor.fetchone()
 
@@ -64,7 +63,7 @@ def dashboard(user_id, role):
         SELECT COUNT(*)
         FROM invoices
         WHERE user_id=%s
-    """, (user_id,))
+    """, (current_user_id,))
     total_invoices = cursor.fetchone()[0]
 
 
@@ -74,7 +73,7 @@ def dashboard(user_id, role):
         FROM invoices
         WHERE user_id=%s AND status=%s
         ORDER BY invoice_date DESC
-    """, (user_id,"paid"))
+    """, (current_user_id,"paid"))
     paid_invoices = cursor.fetchone()[0]
 
 
@@ -84,7 +83,7 @@ def dashboard(user_id, role):
         FROM invoices
         WHERE user_id=%s AND status=%s
         ORDER BY invoice_date DESC
-    """, (user_id,"pending"))
+    """, (current_user_id,"pending"))
     pending_invoices = cursor.fetchone()[0]
 
     # Fetch total revenues
@@ -94,7 +93,7 @@ def dashboard(user_id, role):
         FROM invoices
         WHERE user_id=%s AND status=%s
         ORDER BY invoice_date DESC
-    """, (user_id,"paid")
+    """, (current_user_id,"paid")
     )
     total_revenue = cursor.fetchone()[0]
 
@@ -105,7 +104,7 @@ def dashboard(user_id, role):
         FROM user_settings
         WHERE user_id=%s
         """,
-        (user_id,)
+        (current_user_id,)
     )
     settings = cursor.fetchone()
     if not settings:
@@ -119,7 +118,7 @@ def dashboard(user_id, role):
         FROM wallet_base
         WHERE user_id=%s
         """,
-        (user_id,)
+        (current_user_id,)
     )
     wallet = cursor.fetchone()
     if not wallet:
@@ -130,9 +129,9 @@ def dashboard(user_id, role):
   
     return jsonify({
         "status": "success",
-        "user": {
-            "id": user_id,
-            "role": role,
+      "user": {
+            "id": current_user_id,
+            "role": current_user_role
         },
         "profilename": profilename,
         "profile_picture_url": profile_picture_url,
@@ -884,6 +883,7 @@ def verifylogin():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
