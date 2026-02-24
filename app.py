@@ -43,105 +43,89 @@ SECURITY_URL = "https://yourapp.com/security-settings"
 DASHBOARD_URL = "https://yourapp.com/dashboard"
 SECRET_KEY = os.getenv("SECRET_KEY")
 
+
 @app.route("/api/dashboard", methods=["GET"])
 @token_required
 def dashboard(current_user_id, current_user_role):
 
-    cursor.execute(
-        """
+    cursor = connection.cursor(dictionary=True, buffered=True)
+
+    cursor.execute("""
         SELECT profilepicurl, profilename  
         FROM cust_base 
         WHERE user_id=%s
-        """,
-        (current_user_id,)
-    )
+    """, (current_user_id,))
+    
     cust = cursor.fetchone()
+    if not cust:
+        return jsonify({"error": "Customer not found"}), 404
 
-    profile_picture_url, profilename  = cust[0], cust[1]
-
-    # Feth total invoice
+    # Total invoices
     cursor.execute("""
-        SELECT COUNT(*)
+        SELECT COUNT(*) AS total
         FROM invoices
         WHERE user_id=%s
     """, (current_user_id,))
-    total_invoices = cursor.fetchone()[0]
+    total_invoices = cursor.fetchone()["total"]
 
-
-    # Fetch paid invoice
+    # Paid invoices
     cursor.execute("""
-        SELECT COUNT(*)
+        SELECT COUNT(*) AS total
         FROM invoices
         WHERE user_id=%s AND status=%s
-        ORDER BY invoice_date DESC
-    """, (current_user_id,"paid"))
-    paid_invoices = cursor.fetchone()[0]
+    """, (current_user_id, "paid"))
+    paid_invoices = cursor.fetchone()["total"]
 
-
-    # Fetch pending invoice
+    # Pending invoices
     cursor.execute("""
-        SELECT COUNT(*)
+        SELECT COUNT(*) AS total
         FROM invoices
         WHERE user_id=%s AND status=%s
-        ORDER BY invoice_date DESC
-    """, (current_user_id,"pending"))
-    pending_invoices = cursor.fetchone()[0]
+    """, (current_user_id, "pending"))
+    pending_invoices = cursor.fetchone()["total"]
 
-    # Fetch total revenues
-    cursor.execute(
-        """
-        SELECT  COALESCE(SUM(total_amount), 0) 
+    # Revenue
+    cursor.execute("""
+        SELECT COALESCE(SUM(total_amount), 0) AS revenue
         FROM invoices
         WHERE user_id=%s AND status=%s
-        ORDER BY invoice_date DESC
-    """, (current_user_id,"paid")
-    )
-    total_revenue = cursor.fetchone()[0]
+    """, (current_user_id, "paid"))
+    total_revenue = cursor.fetchone()["revenue"]
 
-    # Fetch currency
-    cursor.execute(
-        """
+    # Settings
+    cursor.execute("""
         SELECT currency, currency_symbol
         FROM user_settings
         WHERE user_id=%s
-        """,
-        (current_user_id,)
-    )
+    """, (current_user_id,))
     settings = cursor.fetchone()
     if not settings:
         return jsonify({"error": "Settings not found"}), 404
-    currency, currency_symbol = settings
 
-    # Fetch wallet balance
-    cursor.execute(
-        """
-        SELECT wallet_balance 
+    # Wallet
+    cursor.execute("""
+        SELECT wallet_balance
         FROM wallet_base
         WHERE user_id=%s
-        """,
-        (current_user_id,)
-    )
+    """, (current_user_id,))
     wallet = cursor.fetchone()
     if not wallet:
         return jsonify({"error": "Wallet not found"}), 404
-    
-    wallet_balance = wallet[0]
 
-  
     return jsonify({
         "status": "success",
-      "user": {
+        "user": {
             "id": current_user_id,
             "role": current_user_role
         },
-        "profilename": profilename,
-        "profile_picture_url": profile_picture_url,
+        "profilename": cust["profilename"],
+        "profile_picture_url": cust["profilepicurl"],
         "total_invoices": total_invoices,
         "paid_invoices": paid_invoices,
         "pending_invoices": pending_invoices,
         "total_revenue": total_revenue,
-        "currency_symbol": currency_symbol,
-        "wallet_balance":wallet_balance
+        "currency_symbol": settings["currency_symbol"],
+        "wallet_balance": wallet["wallet_balance"]
     }), 200
 
 @app.route("/api/cust", methods=["POST"])
@@ -884,6 +868,7 @@ def verifylogin():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
