@@ -48,7 +48,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 @token_required
 def dashboard(current_user_id, current_user_role):
 
-    cursor = connection.cursor(dictionary=True, buffered=True)
+    cursor = conn.cursor(dictionary=True, buffered=True)
 
     cursor.execute("""
         SELECT profilepicurl, profilename  
@@ -868,6 +868,7 @@ def verifylogin():
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
