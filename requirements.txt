@@ -7,3 +7,4 @@ requests
 werkzeug
 PyJWT
 reportlab
+user_agents
