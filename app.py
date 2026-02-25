@@ -131,6 +131,61 @@ def dashboard(current_user_id, current_user_role):
         "wallet_balance": wallet["wallet_balance"]
     }), 200
 
+@app.route("/api/view-invoices", methods=["GET"])
+@token_required
+def view_invoice(current_user_id, current_user_role):
+
+    cursor = conn.cursor(dictionary=True, buffered=True)
+
+    # Get invoices
+    cursor.execute(
+        """
+        SELECT 
+            id AS invoice_number,
+            client_name,
+            status,
+            due_date,
+            total_amount AS total
+        FROM invoices
+        WHERE user_id = %s
+        """,
+        (current_user_id,)
+    )
+
+    invoices = cursor.fetchall()
+
+    # Get currency settings
+    cursor.execute(
+        """
+        SELECT currency, currency_symbol
+        FROM user_settings
+        WHERE user_id = %s
+        """,
+        (current_user_id,)
+    )
+
+    settings = cursor.fetchone()
+
+    if not settings:
+        cursor.close()
+        return jsonify({"error": "Settings not found"}), 404
+
+    currency = settings["currency"]
+    currency_symbol = settings["currency_symbol"]
+
+    cursor.close()
+
+    return jsonify({
+        "status": "success",
+        "user": {
+            "id": current_user_id,
+            "role": current_user_role
+        },
+        "invoices": invoices,
+        "currency": currency,
+        "currency_symbol": currency_symbol,
+    }), 200
+
 @app.route("/api/cust", methods=["POST"])
 def create_profile():
     data = request.get_json()
@@ -1379,6 +1434,7 @@ def create_invoice(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
