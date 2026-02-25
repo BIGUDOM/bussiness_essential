@@ -1313,7 +1313,7 @@ def create_invoice(current_user_id, current_user_role):
             FROM user_settings
             WHERE user_id=%s
             """,
-            (current_user_id)
+            (current_user_id,)
         )
         invoice_prefix= cursor.fetchone()[0]
 
@@ -1379,6 +1379,7 @@ def create_invoice(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
