@@ -8,7 +8,7 @@ import secrets
 import requests
 import mysql.connector
 import os
-from backend.utils import token_required,get_user_id,send_email
+from backend.utils import token_required,get_user_id,send_email, send_basic_plan_invoice_email,send_pro_plan_invoice_email,save_log_activity,generate_reference
 import jwt
 from functools import wraps
 
@@ -1170,8 +1170,216 @@ def savepassword():
 
 
 
+@app.route("/api/create-invoice", methods=["POST"])
+@token_required
+def create_invoice(current_user_id, current_user_role):
+    data = request.get_json(force=True) 
+    if not data:
+        return jsonify({"status": "error", "message": "Invalid JSON"}), 400
+
+   
+
+    client_name = data.get("client_name")
+    client_email = data.get("client_email")
+    invoice_date = data.get("invoice_date")
+    due_date = data.get("due_date")
+    items = data.get("items", [])
+    notes = data.get("notes", "")
+    subtotal = float(data.get("subtotal", 0))
+    tax = float(data.get("tax", 0))
+    total = float(data.get("total", 0))
+    amount_paid = float(data.get("amount_paid", 0))
+
+    # Validation
+    if not all([client_name, client_email, invoice_date, due_date]):
+        return jsonify({"status": "error", "message": "Missing required fields"}), 400
+
+    # Calculate balance & status
+    balance = max(total - amount_paid, 0)
+
+    if balance <= 0:
+        status = "paid"
+    elif amount_paid > 0:
+        status = "pending"
+    else:
+        status = "unpaid"
+
+    try:
+        # Verify user
+        cursor.execute(
+            "SELECT username, plan, trial_ends_at FROM user_base WHERE user_id=%s",
+            (current_user_id,)
+        )
+        user_info = cursor.fetchone()
+        if not user_info:
+            return jsonify({"status": "error", "message": "User not found"}), 404
+        
+        # Feth total invoice
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM invoices
+            WHERE user_id=%s
+        """, (current_user_id,))
+        total_invoices = cursor.fetchone()[0]
+        
+        if user_info[1] == "trial":
+            if total_invoices >= 30:
+                return jsonify({
+                    "status": "error",
+                    "message": "Trial period has ended. Please upgrade your plan."
+                }), 400
+
+        # Find or create client (email-based)
+        cursor.execute(
+            "SELECT client_id FROM clients WHERE user_id=%s AND client_email=%s",
+            (current_user_id, client_email)
+        )
+        client = cursor.fetchone()
+
+        if client:
+            client_id = client[0]
+        else:
+            cursor.execute(
+                """
+                INSERT INTO clients (user_id, client_name, client_email)
+                VALUES (%s, %s, %s)
+                """,
+                (current_user_id, client_name, client_email)
+            )
+            client_id = cursor.lastrowid
+
+        # Insert invoice
+        cursor.execute(
+            """
+            INSERT INTO invoices (
+                user_id,
+                client_id,
+                client_name,
+                client_email,
+                subtotal,
+                tax,
+                invoice_date,
+                due_date,
+                notes,
+                total_amount,
+                amount_paid,
+                balance,
+                status
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                current_user_id,
+                client_id,
+                client_name,
+                client_email,
+                subtotal,
+                tax,
+                invoice_date,
+                due_date,
+                notes,
+                total,
+                amount_paid,
+                balance,
+                status
+            )
+        )
+        invoice_id = cursor.lastrowid
+
+        # Insert items
+        for item in items:
+            if not item.get("description"):
+                continue
+
+            cursor.execute(
+                """
+                INSERT INTO invoice_items (invoice_id, description, quantity, price)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (
+                    invoice_id,
+                    item.get("description"),
+                    item.get("quantity", 1),
+                    item.get("price", 0)
+                )
+            )
+
+      
+
+        # Get Invoice prefix
+        cursor.execute(
+            """
+            SELECT invoice_prefix
+            FROM user_settings
+            WHERE user_id=%s
+            """,
+            (current_user_id)
+        )
+        invoice_prefix= cursor.fetchone()[0]
+
+        # record to transaction 
+        reference = generate_reference(invoice_prefix)
+        cursor.execute(
+            """
+            INSERT INTO transactions
+            (user_id,invoice_id,amount,reference,status)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (current_user_id,invoice_id,amount_paid,reference,status)
+        )
+
+        conn.commit()
+
+        if user_info[1] == "basic":
+            current_month = datetime.now().month
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM invoices
+                WHERE user_id=%s AND MONTH(created_at)=%s AND YEAR(created_at)=YEAR(NOW())
+                """,
+                (current_user_id, current_month)
+            )
+            invoice_count = cursor.fetchone()[0]
+            if invoice_count > 100:
+                return jsonify({
+                    "status": "error",
+                    "message": "Invoice limit reached for Basic plan. Please upgrade your plan."
+                }), 400 
+            
+            send_basic_plan_invoice_email(client_email,client_name,invoice_id,invoice_date,due_date,status,subtotal,tax,total,amount_paid, balance, notes,items)
+  
+        if user_info[1] == "pro":
+            send_pro_plan_invoice_email(client_email,client_name,invoice_id,invoice_date,due_date,status,subtotal,tax,total,amount_paid, balance, notes,items)
+        
+        if user_info[1] == "trial":
+            send_basic_plan_invoice_email(client_email,client_name,invoice_id,invoice_date,due_date,status,subtotal,tax,total,amount_paid, balance, notes,items)
+
+  
+
+        save_log_activity(
+           current_user_id ,
+            "Invoice",
+            "Created",
+            f"Invoice #{invoice_id} created for {client_name}",
+            total,
+            status
+        )
+
+        return jsonify({
+            "status": "success",
+            "message": "Invoice created successfully",
+            "invoice_id": invoice_id
+        }), 201
+
+    except Exception as e:
+        conn.rollback()
+        print("Create invoice error:", e)
+        return jsonify({"status": "error", "message": f"Server error: {e}"}), 500
+
+
 if __name__ == "__main__":
     app.run()
+
 
 
 
