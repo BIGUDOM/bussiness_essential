@@ -6,3 +6,4 @@ gunicorn
 requests
 werkzeug
 PyJWT
+reportlab
