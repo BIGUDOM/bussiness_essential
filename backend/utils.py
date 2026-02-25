@@ -18,6 +18,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from typing import Optional
+from datetime import datetime,timedelta
 
 
 load_dotenv()
@@ -612,6 +613,7 @@ def parse_user_agent(user_agent_string):
 
 
     return device_model, client_type, os_name, os_version
+
 
 
 
