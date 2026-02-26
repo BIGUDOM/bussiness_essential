@@ -529,7 +529,7 @@ def complete_cust():
     if file:
         filename = secure_filename(f"{user_id}_{file.filename}")  # safe filename
         result = cloudinary.uploader.upload(
-            filename,
+            file,
             folder="profile_images",
             transformation = [
                 {"width":300, "height":300, "crop":"fill"}
@@ -1623,6 +1623,7 @@ def save_draft(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
