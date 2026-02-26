@@ -11,6 +11,12 @@ import os
 from backend.utils import token_required,get_user_id,send_email, send_basic_plan_invoice_email,send_pro_plan_invoice_email,save_log_activity,generate_reference
 import jwt
 from functools import wraps
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
+import os
+from werkzeug.utils import secure_filename
+
 
 
 conn = mysql.connector.connect(
@@ -21,6 +27,13 @@ conn = mysql.connector.connect(
         port =  os.getenv("DB_PORT"),
 )
 cursor = conn.cursor()
+
+cloudinary.config(
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key =  os.getenv("CLOUDINARY_API_KEY"),
+    api_secret = os.getenv("CLOUDINARY_API_SECRET")
+)
+
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
@@ -35,14 +48,10 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax"
 )
 
-UPLOAD_FOLDER = "static/uploads" 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
 # ==========================
 # CONSTANTS
 # ==========================
-APP_LOGO_URL = os.path.join('static', 'media', 'app logo.png')
+APP_LOGO_URL = "https://res.cloudinary.com/dkb987i8w/image/upload/v1772108684/app_logo_ky1yis.png"
 SECURITY_URL = "https://yourapp.com/security-settings"
 DASHBOARD_URL = "https://yourapp.com/dashboard"
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -188,6 +197,85 @@ def view_invoice(current_user_id, current_user_role):
         "invoicePrefix": settings["invoice_prefix"],
         "year": datetime.now().year
     }), 200
+
+
+@app.route("/api/view-draft", methods=["GET"])
+@token_required
+def view_draft(current_user_id, current_user_role):
+    cursor = conn.cursor(dictionary=True, buffered=True)
+
+    cursor.execute(
+        """
+        SELECT draft_id, client_name, due_date, total_amount
+        FROM invoice_draft
+        WHERE user_id = %s
+        """,
+        (current_user_id,)
+    )
+    drafts = cursor.fetchall()
+
+    # Get currency settings
+    cursor.execute(
+        """
+        SELECT currency, currency_symbol
+        FROM user_settings
+        WHERE user_id = %s
+        """,
+        (current_user_id,)
+    )
+
+    settings = cursor.fetchone()
+
+    if not settings:
+        cursor.close()
+        return jsonify({"error": "Settings not found"}), 404
+
+    currency = settings["currency"]
+    currency_symbol = settings["currency_symbol"]
+
+    cursor.close()
+    
+    return jsonify({
+        "status": "success",
+        "user": {
+            "id": current_user_id,
+            "role": current_user_role
+        },
+        "drafts": drafts,
+        "currency": currency,
+        "currency_symbol": currency_symbol,
+    }), 200
+
+
+@app.route("/api/view-clients", methods=["GET"])
+@token_required
+def view_clients(current_user_id, current_user_role):
+    cursor = conn.cursor(dictionary=True, buffered=True)
+
+    cursor.execute(
+        """
+        SELECT client_id AS id, 
+                client_name AS name, 
+                client_email AS email, 
+                client_phone AS phone
+        FROM clients
+        WHERE user_id = %s
+        """,
+        (current_user_id,)
+    )
+    clients = cursor.fetchall()
+
+    cursor.close()
+
+    return jsonify({
+        "status": "success",
+        "user": {
+            "id": current_user_id,
+            "role": current_user_role
+        },
+        "clients": clients,
+    }), 200
+
 
 @app.route("/api/cust", methods=["POST"])
 def create_profile():
@@ -432,23 +520,21 @@ def complete_cust():
     username = form.get("username")
     user_id = get_user_id(username)  # Assuming this function exists
 
-    import os
-    from werkzeug.utils import secure_filename
-
-    UPLOAD_FOLDER = "static/uploads"
-
-    # Ensure the upload folder exists
-    if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)  # <-- creates the folder if missing
 
     # Example saving file
     file = request.files.get("profile_picture")  # Make sure your input type="file"
     if file:
         filename = secure_filename(f"{user_id}_{file.filename}")  # safe filename
-        save_path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(save_path)
-
-
+        result = cloudinary.uploader.upload(
+            filename,
+            folder="profile_images",
+            transformation = [
+                {"width":300, "height":300, "crop":"fill"}
+            ],
+            public_id = f"user_{user_id}",
+            overwrite= True
+        )
+        save_path = result['secure_url']
 
     try:
         cursor.execute("""
@@ -1534,6 +1620,7 @@ def save_draft(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
