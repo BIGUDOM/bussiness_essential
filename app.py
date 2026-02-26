@@ -145,6 +145,7 @@ def view_invoice(current_user_id, current_user_role):
             client_name,
             status,
             due_date,
+            invoice_date
             total_amount AS total
         FROM invoices
         WHERE user_id = %s
@@ -157,7 +158,7 @@ def view_invoice(current_user_id, current_user_role):
     # Get currency settings
     cursor.execute(
         """
-        SELECT currency, currency_symbol
+        SELECT currency, currency_symbol,invoice_prefix
         FROM user_settings
         WHERE user_id = %s
         """,
@@ -184,6 +185,8 @@ def view_invoice(current_user_id, current_user_role):
         "invoices": invoices,
         "currency": currency,
         "currency_symbol": currency_symbol,
+        "invoicePrefix": settings["invoice_prefix"],
+        "year": datetime.now().year
     }), 200
 
 @app.route("/api/cust", methods=["POST"])
@@ -1481,9 +1484,10 @@ def save_draft(current_user_id, current_user_role):
                     price,
                     subtotal,
                     tax,
-                    total_amount
+                    total_amount,
+                    status
                 )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     current_user_id,
@@ -1497,7 +1501,8 @@ def save_draft(current_user_id, current_user_role):
                     item.get("price", 0),
                     subtotal,
                     tax,
-                    total
+                    total,
+                    "unpaid"
                 )
             )
 
@@ -1531,6 +1536,7 @@ def save_draft(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
