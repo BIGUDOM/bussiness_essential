@@ -1432,8 +1432,106 @@ def create_invoice(current_user_id, current_user_role):
         return jsonify({"status": "error", "message": f"Server error: {e}"}), 500
 
 
+
+@app.route("/api/invoice/drafts", methods=["POST"])
+@token_required
+def save_draft(current_user_id, current_user_role):
+
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"status": "error", "message": "Invalid JSON"}), 400
+
+    client_name = data.get("client_name")
+    client_email = data.get("client_email")
+    invoice_date = data.get("invoice_date")
+    due_date = data.get("due_date")
+    items = data.get("items", [])
+    notes = data.get("notes", "")
+    subtotal = float(data.get("subtotal", 0))
+    tax = float(data.get("tax", 0))
+    total = float(data.get("total", 0))
+
+    if not all([client_name, client_email, invoice_date, due_date]):
+        return jsonify({"status": "error", "message": "Missing required fields"}), 400
+
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "SELECT username FROM user_base WHERE user_id=%s",
+            (current_user_id,)
+        )
+
+        if not cursor.fetchone():
+            cursor.close()
+            return jsonify({"status": "error", "message": "User not found"}), 404
+
+        for item in items:
+            cursor.execute(
+                """
+                INSERT INTO invoice_draft (
+                    user_id,
+                    client_name,
+                    client_email,
+                    invoice_date,
+                    due_date,
+                    notes,
+                    description,
+                    quantity,
+                    price,
+                    subtotal,
+                    tax,
+                    total_amount
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    current_user_id,
+                    client_name,
+                    client_email,
+                    invoice_date,
+                    due_date,
+                    notes,
+                    item.get("description"),
+                    item.get("quantity", 1),
+                    item.get("price", 0),
+                    subtotal,
+                    tax,
+                    total
+                )
+            )
+
+        conn.commit()
+
+        save_log_activity(
+            current_user_id,
+            "Invoice",
+            "Draft Saved",
+            f"Draft saved for {client_name}",
+            total,
+            "draft"
+        )
+
+        cursor.close()
+
+        return jsonify({
+            "status": "success",
+            "message": "Invoice saved as draft"
+        }), 200
+
+    except Exception as e:
+        conn.rollback()
+        cursor.close()
+        print("Save draft error:", e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
 if __name__ == "__main__":
     app.run()
+
 
 
 
