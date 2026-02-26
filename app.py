@@ -1484,10 +1484,9 @@ def save_draft(current_user_id, current_user_role):
                     price,
                     subtotal,
                     tax,
-                    total_amount,
-                    status
+                    total_amount
                 )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     current_user_id,
@@ -1501,8 +1500,7 @@ def save_draft(current_user_id, current_user_role):
                     item.get("price", 0),
                     subtotal,
                     tax,
-                    total,
-                    "unpaid"
+                    total
                 )
             )
 
@@ -1514,7 +1512,7 @@ def save_draft(current_user_id, current_user_role):
             "Draft Saved",
             f"Draft saved for {client_name}",
             total,
-            "invoice"
+            "pending"
         )
 
         cursor.close()
@@ -1536,6 +1534,7 @@ def save_draft(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
