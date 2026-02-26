@@ -145,7 +145,7 @@ def view_invoice(current_user_id, current_user_role):
             client_name,
             status,
             due_date,
-            invoice_date
+            invoice_date,
             total_amount AS total
         FROM invoices
         WHERE user_id = %s
@@ -1534,6 +1534,7 @@ def save_draft(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
