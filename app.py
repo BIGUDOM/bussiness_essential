@@ -1514,7 +1514,7 @@ def save_draft(current_user_id, current_user_role):
             "Draft Saved",
             f"Draft saved for {client_name}",
             total,
-            "draft"
+            "invoice"
         )
 
         cursor.close()
@@ -1536,6 +1536,7 @@ def save_draft(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
