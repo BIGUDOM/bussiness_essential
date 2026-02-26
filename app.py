@@ -31,8 +31,10 @@ cursor = conn.cursor()
 cloudinary.config(
     cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME"),
     api_key =  os.getenv("CLOUDINARY_API_KEY"),
-    api_secret = os.getenv("CLOUDINARY_API_SECRET")
+    api_secret = os.getenv("COULDINARY_API_SECRET")
 )
+
+
 
 
 app = Flask(__name__)
@@ -1620,6 +1622,7 @@ def save_draft(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
