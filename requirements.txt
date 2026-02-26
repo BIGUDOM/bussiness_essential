@@ -8,3 +8,4 @@ werkzeug
 PyJWT
 reportlab
 user_agents
+cloudinary
