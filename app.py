@@ -8,7 +8,7 @@ import secrets
 import requests
 import mysql.connector
 import os
-from backend.utils import token_required,get_user_id,send_email, send_basic_plan_invoice_email,send_pro_plan_invoice_email,save_log_activity,generate_reference
+from backend.utils import token_required,get_user_id,send_email, send_basic_plan_invoice_email,send_pro_plan_invoice_email,save_log_activity,generate_reference,detect_location
 import jwt
 from functools import wraps
 import cloudinary
@@ -276,6 +276,51 @@ def view_clients(current_user_id, current_user_role):
             "role": current_user_role
         },
         "clients": clients,
+    }), 200
+
+@app.route("/api/view-profile", methods=["GET"])
+@token_required
+def view_profile(current_user_id, current_user_role):
+    cursor = conn.cursor(dictionary=True, buffered=True)
+
+    cursor.execute(
+        """
+        SELECT profilename
+        FROM cust_base
+        WHERE user_id = %s
+        """,
+        (current_user_id,)
+    )
+    profile = cursor.fetchone()
+
+    if not profile:
+        cursor.close()
+        return jsonify({"error": "Profile not found"}), 404
+    
+    profilename = profile["profilename"]
+
+    cursor.execute(
+        """
+        SELECT wallet_balance
+        FROM wallet_base
+        WHERE user_id = %s
+        """,
+        (current_user_id,)
+    )
+
+    wallet = cursor.fetchone()
+
+    wallet_balance = wallet["wallet_balance"] if wallet else 0.0    
+    cursor.close()
+
+    return jsonify({
+        "status": "success",
+        "user": {
+            "id": current_user_id,
+            "role": current_user_role
+        },
+        "profile_name":  profilename ,
+        "wallet_balance": wallet_balance,
     }), 200
 
 
@@ -875,13 +920,21 @@ def verifylogin():
             except Exception:
                 return "Unknown City", "Unknown Region", "Unknown Country"
 
+        deviceinfo = data['device'] 
+        brand = deviceinfo["brand"]
+        modelName = deviceinfo["modelName"]
+        osName = deviceinfo["osNam"]
+        osVersion = deviceinfo[" osVersion"]
+      
+
         def get_client_ip(request):
             if request.headers.get("X-Forwarded-For"):
                 return request.headers.get("X-Forwarded-For").split(",")[0]
             return request.remote_addr
+    
 
         login_ip = get_client_ip(request)
-        city, region, country = get_location_from_ip(login_ip)
+        country, state, city = detect_location()
         year = datetime.now().year
 
         login_html = f"""
@@ -921,9 +974,9 @@ def verifylogin():
               <td style="font-size:14px; line-height:1.8;">
                 <strong>Login details</strong><br />
                 <strong>IP Address:</strong> {login_ip}<br />
-                <strong>Location:</strong> {city}, {region}, {country}<br />
+                <strong>Location:</strong> {city}, {state}, {country}<br />
                 <strong>Date & Time:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br />
-                <strong>Device:</strong> New or unrecognized device
+                <strong>Device:</strong> {brand} {modelName} ({osName} {osVersion})
               </td>
             </tr>
           </table>
@@ -1623,6 +1676,7 @@ def save_draft(current_user_id, current_user_role):
 
 if __name__ == "__main__":
     app.run()
+
 
 
 
