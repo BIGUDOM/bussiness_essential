@@ -614,6 +614,18 @@ def parse_user_agent(user_agent_string):
 
     return device_model, client_type, os_name, os_version
 
+def detect_location():
+     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+     response = requests.get(f"http://ipwho.is/{ip}")
+     data = response.json()
+
+     country = data.get("country")
+     state = data.get("region")
+     city = data.get("city")
+
+     return country, state, city
+
+
 
 
 
